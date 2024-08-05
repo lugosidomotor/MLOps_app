@@ -1,4 +1,5 @@
-# 🔗 Related Repos
+# 🔗 Related Repo
+https://github.com/lugosidomotor/MLOps_infra
 
 # 🔄 Continuous Integration (CI) Workflow
 
