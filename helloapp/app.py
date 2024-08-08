@@ -1,76 +1,30 @@
-# Stage 1: Data Preparation
-FROM python:3.8-slim as prep
+from flask import Flask, request, jsonify
+import torch
+from train import SimpleNN
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+import pandas as pd
 
-# Set work directory
-WORKDIR /app
+app = Flask(__name__)
 
-# Copy requirements and install dependencies
-COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+model = SimpleNN(input_size=10)  # Adjust input size according to dataset
+model.load_state_dict(torch.load("model.pth"))
+model.eval()
 
-# Copy the data preparation script and run it
-COPY data_prep.py data_prep.py
-RUN python data_prep.py
+scaler = StandardScaler()
 
-# Stage 2: Training
-FROM python:3.8-slim as train
+# Load and fit the scaler
+train_data = pd.read_csv("train.csv")
+scaler.fit(train_data.iloc[:, :-1])
 
-# Set work directory
-WORKDIR /app
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.json
+    features = np.array(data['features']).astype(np.float32)
+    features = scaler.transform([features])
+    with torch.no_grad():
+        prediction = model(torch.tensor(features))
+    return jsonify({'prediction': prediction.item()})
 
-# Copy requirements and install dependencies
-COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy data preparation output and other necessary files
-COPY --from=prep /app/train.csv /app/train.csv
-COPY --from=prep /app/test.csv /app/test.csv
-COPY . .
-
-# Run the training script
-RUN python train.py
-
-# Stage 3: Evaluation
-FROM python:3.8-slim as evaluate
-
-# Set work directory
-WORKDIR /app
-
-# Copy requirements and install dependencies
-COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy training output and other necessary files
-COPY --from=train /app/model.pth /app/model.pth
-COPY --from=train /app/train.csv /app/train.csv
-COPY --from=train /app/test.csv /app/test.csv
-COPY . .
-
-# Run the evaluation script
-RUN python evaluate.py
-
-# Stage 4: Final image for serving the model
-FROM python:3.8-slim
-
-LABEL maintainer="Umpa Lumpa <dik@duk.com>"
-
-ENV USER=serviceuser
-RUN adduser -D $USER
-USER $USER
-
-# Set work directory
-WORKDIR /app
-
-# Copy requirements and install dependencies
-COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the trained model and necessary files from the evaluate stage
-COPY --from=evaluate /app/model.pth /app/model.pth
-COPY . .
-
-# Expose the port the app runs on
-EXPOSE 5000
-
-# Run the application
-CMD ["python", "app.py"]
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000)
